@@ -1,0 +1,47 @@
+http://localhost:4000/
+
+###
+
+http://localhost:3000/status
+
+###
+
+http://localhost:4000/blocks
+
+###
+
+POST http://localhost:3000/blocks
+
+###
+
+http://localhost:4000/blocks/00621de83e04a3f1931c3826eca710ac9f5307f5330345be0147bd4931365810
+
+###
+
+http://localhost:4000/balance/8acf56cf09bba50c368b8b3e8c57cbf5d24872aa27ec55b385090347664d7ad44bc93051fe7e7d61f5bc9d43323dd6dac524c57716684a7357334e683a10a904
+
+###
+
+POST http://localhost:3000/transactions
+
+{
+    "to":"PJY",
+    "amount":10
+}
+
+###
+
+http://localhost:3000/mempool
+
+###
+
+POST http://localhost:3000/peers
+
+{
+    "address" : "127.0.0.1",
+    "port" : "2000"
+}
+
+###
+
+http://localhost:4000/peers
