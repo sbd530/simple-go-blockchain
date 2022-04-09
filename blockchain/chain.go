@@ -29,6 +29,7 @@ type blockchain struct {
 	m              sync.Mutex
 }
 
+//블록의 난이도 계산. 처음에는 디폴트 값으로 난이도 설정. block의 interval마다 난이도를 다시 계산하고 그 외의 경우에는 blockchain의 난이도를 계승.
 func difficulty(b *blockchain) int {
 	if b.Height == 0 { // genesis block의 난이도 = defaultDifficulty로 설정
 		return defaultDifficulty
@@ -40,6 +41,7 @@ func difficulty(b *blockchain) int {
 	}
 }
 
+//블록 생성에 걸리는 시간(interval)을 계산해서 채굴에 걸리는 시간에 따라 난이도 조절
 func recalculateDifficulty(b *blockchain) int { //difficulty 다시 계산해서 currDifficulty에 넣어주기
 	allBlocks := Blocks(b)
 	newestBlock := allBlocks[0]
@@ -58,7 +60,8 @@ func recalculateDifficulty(b *blockchain) int { //difficulty 다시 계산해서
 var b *blockchain  //singleton
 var once sync.Once // 병렬처리해도 한번만 작동될 수 있도록
 
-func Blockchain() *blockchain { //singleton과 once를 이용한 blockchain생성(genesis). 이미 존재할 시 디코딩을 통해 체크포인트부터 연결
+//singleton과 once를 이용한 blockchain생성(genesis). 이미 존재할 시 디코딩을 통해 체크포인트부터 연결
+func Blockchain() *blockchain {
 	once.Do(func() { //Do 안의 func가 한번 더 Do를 콜하면 데드록 발생 -> Do는 func 가 끝나기 전까지 종료되지 않기 때문
 		b = &blockchain{
 			Height: 0,
@@ -79,6 +82,7 @@ func Blockchain() *blockchain { //singleton과 once를 이용한 blockchain생�
 	return b
 }
 
+//txs에 모든 block의 tx를 역순으로 저장.
 func Txs(b *blockchain) []*Tx {
 	var txs []*Tx
 	for _, block := range Blocks(b) {
@@ -87,6 +91,7 @@ func Txs(b *blockchain) []*Tx {
 	return txs
 }
 
+//모든 Tx중 ID가 targetID와 같은 Tx를 찾아서 리턴
 func FindTx(b *blockchain, targetID string) *Tx {
 	for _, tx := range Txs(b) {
 		if tx.Id == targetID {
@@ -96,6 +101,7 @@ func FindTx(b *blockchain, targetID string) *Tx {
 	return nil
 }
 
+//새로운 block을 생성 후, blockchain의 데이터를 변경. 그 후 새로워진 blockchain을 db에 저장 후 block을 리턴
 func (b *blockchain) AddBlock() *Block { //새로운 블록 추가하는 함수
 	block := createBlock(b.NewestHash, b.Height+1, difficulty(b)) //chain의 NewestHash가 Hash. Height
 	b.NewestHash = block.Hash                                     // 새로운 블록의 hash 설정
@@ -106,14 +112,17 @@ func (b *blockchain) AddBlock() *Block { //새로운 블록 추가하는 함수
 	return block
 }
 
+//blockchain을 []byte로 변환시켜서 db에 저장.
 func persistBlockchain(b *blockchain) { //override. blockchain을 db에 저장하는 함수
 	db.SaveBlockchain(utils.ToBytes(b))
 }
 
+//[]byte 형태였던 blockchain을 원래의 blockchain 형식으로 변환.
 func (b *blockchain) fromBytes(data []byte) { // db에서 decoding해서 blockchain data로 변환 후 blockchain에 저장하는 함수
 	utils.FromBytes(b, data)
 }
 
+//해당 blockchain의 block을 역순으로 찾아서 blocks에 대입 후 리턴. 가장 최근 block이 blocks[0].
 func Blocks(b *blockchain) []*Block { //NewestHash로 prevHash를 갖는 블록을 찾고 그 prevHash로 또 전 블록찾고...해서 []*Block 리턴
 	b.m.Lock()
 	defer b.m.Unlock()
@@ -155,14 +164,16 @@ func Blocks(b *blockchain) []*Block { //NewestHash로 prevHash를 갖는 블록�
 
 // return txOutsAddress
 // }
+
+//모든 TxOut에 대해 해당 address의 TxOut이 사용되었나 creatorTxs에 넣어서 판단함. (tx에는 없으나 mempool에 있을 수도 있으므로)사용되지 않은 TxOut을 초기화한 uTxOut에 대입해서 uTxOut으로 만들고 mempool에 있는지 확인해서 없으면 uTxOuts에 대입.
 func UTxOutsByAddress(address string, b *blockchain) []*UTxOut { // address의 unspent tx outs
 	var uTxOuts []*UTxOut
 	creatorTxs := make(map[string]bool)
-	for _, block := range Blocks(b) {
-		for _, tx := range block.Transactions {
-			for _, input := range tx.TxIns { //TxIn
+	for _, block := range Blocks(b) { //모든 블록 중
+		for _, tx := range block.Transactions { // 모든 트랜잭션 중
+			for _, input := range tx.TxIns { //모든 TxIn 중
 				if input.Signature == "COINBASE" {
-					break
+					break //signature가 coinbase면 break
 
 				}
 				if FindTx(b, input.TxID).TxOuts[input.Index].Address == address {
@@ -180,7 +191,7 @@ func UTxOutsByAddress(address string, b *blockchain) []*UTxOut { // address의 u
 							Index:  index,
 							Amount: output.Amount,
 						}
-						if !isOnMempool(uTxOut) {
+						if !isOnMempool(uTxOut) { //mempool에 없어야 uTxOut
 							uTxOuts = append(uTxOuts, uTxOut)
 						}
 
@@ -194,8 +205,9 @@ func UTxOutsByAddress(address string, b *blockchain) []*UTxOut { // address의 u
 
 }
 
+//해당 address를 가지고 사용되지 않은 TxOuts의 amount를 모두 더해서 리턴.
 func BalanceByAddress(address string, b *blockchain) int { // 해당 address에게 보내진 amount를 계산해서 저장
-	txOuts := UTxOutsByAddress(address, b)
+	txOuts := UTxOutsByAddress(address, b) //사용되지 않은 txOuts
 	var amount int
 	for _, txOut := range txOuts {
 		amount += txOut.Amount
@@ -244,12 +256,15 @@ func BalanceByAddress(address string, b *blockchain) int { // 해당 address에�
 // 	return b.blocks[height-1], nil
 // }
 
+//blockchain을 보여줌.
 func Status(b *blockchain, rw http.ResponseWriter) {
 	b.m.Lock()
 	defer b.m.Unlock()
 	utils.HandleErr(json.NewEncoder(rw).Encode(b))
 }
 
+//역순으로 들어온 newBlocks의 newestBlock에서 hash, height, difficulty를 가져오고 blockchain에 저장. 그 후 db에 blockchain을 업데이트.
+//blocks에 대해서도 db를 비우고 다시 newBlocks를 db에 저장.
 func (b *blockchain) Replace(newBlocks []*Block) {
 	b.m.Lock()
 	defer b.m.Unlock()
@@ -259,13 +274,15 @@ func (b *blockchain) Replace(newBlocks []*Block) {
 	persistBlockchain(b) // db에 blockchain update
 
 	//db에 새로운 blocks 저장
-	db.EmptyBlockss()
+	db.EmptyBlocks()
 	for _, block := range newBlocks {
 		persistBlock(block)
 	}
 
 }
 
+//blockchain의 height, hash, difficulty를 newestBlock의 것으로 바꾸고 db에 blockchain과 newBlock 저장.
+//newBlock에 mempool의 tx 가 들어있으면(tx.id로 확인) mempool에서 tx 삭제.
 func (b *blockchain) AddPeerBlock(newBlock *Block) { //새로 블록을 채굴할 때 실행
 	b.m.Lock()
 	m.m.Lock()

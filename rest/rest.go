@@ -127,13 +127,15 @@ func documentation(rw http.ResponseWriter, r *http.Request) { //documentation.
 // 	Message string // 대문자여야 api.http의 message와 통신? 가능
 // }
 
+//서버가 보내는 header에 add의 내용을 추가함
 func jsonContentTypeMiddleware(next http.Handler) http.Handler { //handler : HTTP request에 response함
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) { //HandlerFunc : 일반 함수를 handler처럼 쓸수잇게해줌
-		rw.Header().Add("Content-Type", "application/json") //서버가 보내는 header에 add의 내용을 추가함
+		rw.Header().Add("Content-Type", "application/json")
 		next.ServeHTTP(rw, r)
 	})
 }
 
+//url print 하는 middleware
 func loggerMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		fmt.Println(r.URL)
@@ -141,6 +143,8 @@ func loggerMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+//POST : 새로운 블록 생성 후 다른 peer들에게 새로운 블록을 전파.
+// GET : 모든 블록의 데이터를 가져와서 보여줌.
 func blocks(rw http.ResponseWriter, r *http.Request) { //
 	switch r.Method { //HTTP에 보내는 request의 종류에 따라 구분
 	case "POST": //to use create a block
@@ -165,6 +169,7 @@ func blocks(rw http.ResponseWriter, r *http.Request) { //
 	//왜인지 모르는데 Method "POST"랑 "GET"이랑 구분을 못함
 }
 
+//해당 hash를 가지는 block을 찾음. 없을 시 에러 송출.
 func block(rw http.ResponseWriter, r *http.Request) { //gorilla mux 사용.
 	vars := mux.Vars(r)
 	//id := vars["height"]
@@ -179,11 +184,13 @@ func block(rw http.ResponseWriter, r *http.Request) { //gorilla mux 사용.
 	}
 }
 
+//blockchain을 보여줌.
 func status(rw http.ResponseWriter, r *http.Request) {
 	// utils.HandleErr(json.NewEncoder(rw).Encode(blockchain.Blockchain())) // blockchain을 encoding
 	blockchain.Status(blockchain.Blockchain(), rw) // mutex
 }
 
+//해당 address의 amount를 모두 더한 값을 출력. true가 있으면 총 amount를 보여주고 아니면 해당 address의 uTxOuts를 모두 보여줌.
 func balance(rw http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	address := vars["address"]
@@ -199,11 +206,13 @@ func balance(rw http.ResponseWriter, r *http.Request) {
 
 }
 
+//mempool의 Txs들을 보여줌.
 func mempool(rw http.ResponseWriter, r *http.Request) {
 	// utils.HandleErr(json.NewEncoder(rw).Encode(blockchain.Mempool().Txs)) //mempool의 txs를 json으로 인코딩해서 rw에 저장
 	blockchain.MempoolMutex(blockchain.Mempool(), rw) // Mutex
 }
 
+//payload에 api의 body 내용을 저장. mempool에 저장된 tx를 가져오고 가져온 tx를 다른 peer들에게 전파함.
 func transactions(rw http.ResponseWriter, r *http.Request) {
 	var payload addTxPayload
 	utils.HandleErr(json.NewDecoder(r.Body).Decode(&payload)) //body내용을 payload에 저장
@@ -211,22 +220,25 @@ func transactions(rw http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		rw.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(rw).Encode(errorResponse{err.Error()})
-		return //?
+		return //에러가 났을경우 바로 함수 종료
 	}
 	p2p.BroadcastNewTx(tx)
 	rw.WriteHeader(http.StatusCreated)
 }
 
+//wallet의 address를 보여줌.
 func myWallet(rw http.ResponseWriter, r *http.Request) {
 	address := wallet.Wallet().Address
 	utils.HandleErr(json.NewEncoder(rw).Encode(myWalletResponse{Address: address}))
 }
 
+//POST : api의 body에서 내용을 가져와서 payload(Address, port)에 저장 후 새로운 peer(port를 기반으로 한) 생성 후 다른 Peers 에게 전파.
+//GET : Peers의 모든 peer의 address를 보여줌.
 func peers(rw http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case "POST":
-		var payload addPeerPayload
-		json.NewDecoder(r.Body).Decode(&payload)
+		var payload addPeerPayload               // api에서 불러올 payload 초기화
+		json.NewDecoder(r.Body).Decode(&payload) //r.Body 내용을 payload에 저장
 		p2p.AddPeer(payload.Address, payload.Port, port[1:], true)
 		rw.WriteHeader(http.StatusOK)
 	case "GET":
@@ -234,6 +246,7 @@ func peers(rw http.ResponseWriter, r *http.Request) {
 	}
 }
 
+//cli.Start()에서 rest 로 시작할 시 실행.
 func Start(portnum int) {
 	//handler := http.NewServeMux() //rest.go와 동일 설정. multiplexer
 

@@ -8,4 +8,8 @@ require (
 	go.etcd.io/bbolt v1.3.6
 )
 
-require golang.org/x/sys v0.0.0-20220209214540-3681064d5158 // indirect
+require (
+	github.com/axw/gocov v1.0.0 // indirect
+	golang.org/x/sys v0.0.0-20220209214540-3681064d5158 // indirect
+	golang.org/x/tools v0.1.10 // indirect
+)

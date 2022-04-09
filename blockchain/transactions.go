@@ -30,8 +30,8 @@ type TxIn struct {
 }
 
 type TxOut struct {
-	Address string `json:"address"`
-	Amount  int    `json:"amount"`
+	Address string `json:"address"` //
+	Amount  int    `json:"amount"`  //
 }
 
 type UTxOut struct {
@@ -52,6 +52,7 @@ type mempool struct { // mempool define
 var m *mempool
 var memOnce sync.Once
 
+//singleton으로 Mempool 초기화
 func Mempool() *mempool {
 	memOnce.Do(func() {
 		m = &mempool{
@@ -61,33 +62,37 @@ func Mempool() *mempool {
 	return m
 }
 
+//mempool의 Txs들을 인코딩.
 func MempoolMutex(m *mempool, rw http.ResponseWriter) {
 	m.m.Lock()
 	defer m.m.Unlock()
 	utils.HandleErr(json.NewEncoder(rw).Encode(Mempool().Txs)) //mempool의 txs를 json으로 인코딩해서 rw에 저장
 }
 
+//tx의 id 를 해싱(string)함.
 func (t *Tx) getId() { // tx 해싱해서 id 얻기
 	// utils.GetHash(t)
 	t.Id = utils.GetHash(t)
 }
 
+//tx의 signature를 생성 후 대입.
 func (t *Tx) sign() {
 	for _, txIn := range t.TxIns {
 		txIn.Signature = wallet.Sign(t.Id, wallet.Wallet())
 	}
 }
 
+//TxID가 같은 Tx가 존재하는지 먼저 검증. 그 후, publicKey를 사용해서 다시 한번 검증.
 func validate(tx *Tx) bool {
 	valid := true
 	for _, txIn := range tx.TxIns {
 		prevTx := FindTx(Blockchain(), txIn.TxID)
-		if prevTx == nil {
+		if prevTx == nil { //txid가 txIn.TxID인 모든 tx를 찾아봐서 없으면 txIn.TxID를 가진 tx가 애초에 블록체인에 존재하지 않았다는 의미이므로 false
 			valid = false
 			break
 		}
 		address := prevTx.TxOuts[txIn.Index].Address
-		valid = wallet.Verify(txIn.Signature, tx.Id, address)
+		valid = wallet.Verify(txIn.Signature, tx.Id, address) //publicKey로 검증
 		if !valid {
 			break
 		}
@@ -95,7 +100,8 @@ func validate(tx *Tx) bool {
 	return valid
 }
 
-func makeCoinbaseTx(address string) *Tx { // coinbase에서 address에 보상 tx 만들기
+// coinbase에서 address에 보상 tx 만들고 tx 리턴
+func makeCoinbaseTx(address string) *Tx {
 	txIns := []*TxIn{
 		{"", -1, "COINBASE"},
 	}
@@ -117,21 +123,22 @@ func makeCoinbaseTx(address string) *Tx { // coinbase에서 address에 보상 tx
 var ErrorNotFund error = errors.New("not enough funds")
 var ErrorNotValid error = errors.New("not valid tx")
 
+//from이 TxOut으로 있는 TxOuts들을 모아서 TxIns을 생성하고 돈 받는사람 to 와 잔돈을 다시 from에게 돌려주는 TxOuts 를 생성. 생성된 TxIns와 TxOuts 로 Tx를 생성하고 그것을 검증하여 검증이 되면 Tx를 리턴.
 func makeTx(from string, to string, amount int) (*Tx, error) { // mempool에 들어갈 tx를 생성
-	if BalanceByAddress(from, Blockchain()) < amount {
+	if BalanceByAddress(from, Blockchain()) < amount { //잔액이 amount보다 작으면 tx 생성 불가능
 		return nil, ErrorNotFund
 
 	}
 	var txOuts []*TxOut
 	var txIns []*TxIn
-	total := 0 // 보낼 수 있는 코인의 합
-	uTxOuts := UTxOutsByAddress(from, Blockchain())
+	total := 0                                      // 보낼 수 있는 코인의 합
+	uTxOuts := UTxOutsByAddress(from, Blockchain()) //from 의 총 잔액을 계산하기 위한 uTxOuts
 
 	for _, uTxOut := range uTxOuts {
 		if total >= amount { // 보낼 수 있는 코인의 합이 amount보다 크거나 같아야 보낼 수 있음. 이걸 만족하면 더이상 total에 더하지 않아도 됨
 			break
 		}
-		txIn := &TxIn{
+		txIn := &TxIn{ //uTxOut을 모아놓은 TxIns 생성
 			TxID:      uTxOut.TxID,
 			Index:     uTxOut.Index,
 			Signature: from,
@@ -143,7 +150,7 @@ func makeTx(from string, to string, amount int) (*Tx, error) { // mempool에 들
 
 	if change := total - amount; change > 0 { //잔돈이 남앗을 때 다시 Txout을 만들고 추가해야함
 		// fmt.Println("change added")
-		changeTxOut := &TxOut{
+		changeTxOut := &TxOut{ // 돈을 보내는 from 에게 잔액 change 돌려줌
 			Address: from,
 			Amount:  change,
 		}
@@ -156,16 +163,16 @@ func makeTx(from string, to string, amount int) (*Tx, error) { // mempool에 들
 		Amount:  amount,
 	}
 
-	txOuts = append(txOuts, txOut)
+	txOuts = append(txOuts, txOut) // 돈 받는 사람 to 모아서 TxOuts 생성
 
-	tx := &Tx{
+	tx := &Tx{ //TxIns 와 TxOuts 로 새로운 Tx 생성
 		Id:        "",
 		Timestamp: int(time.Now().Unix()),
 		TxIns:     txIns,
 		TxOuts:    txOuts,
 	}
-	tx.getId() // Id 추가
-	tx.sign()
+	tx.getId() //id 해싱
+	tx.sign()  //tx에 signature 생성 후 대입
 	valid := validate(tx)
 	if !valid {
 		return nil, ErrorNotValid
@@ -208,7 +215,8 @@ func makeTx(from string, to string, amount int) (*Tx, error) { // mempool에 들
 
 }
 
-func (m *mempool) AddTx(to string, amount int) (*Tx, error) { // mempool에 transaction 추가.
+//검증이 완료된 Tx를 mempool에 대입하고 Tx를 리턴.
+func (m *mempool) AddTx(to string, amount int) (*Tx, error) {
 	tx, err := makeTx(wallet.Wallet().Address, to, amount)
 	//utils.HandleErr(err) 이거로 하면 return값이 error가 아니고 log.panic이기때문에 안댐
 	if err != nil {
@@ -220,6 +228,7 @@ func (m *mempool) AddTx(to string, amount int) (*Tx, error) { // mempool에 tran
 	return tx, nil
 }
 
+//mempool에 tx를 추가
 func (m *mempool) AddPeerTx(tx *Tx) {
 	m.m.Lock()
 	defer m.m.Unlock()
@@ -228,6 +237,7 @@ func (m *mempool) AddPeerTx(tx *Tx) {
 }
 
 //mempool의 tx를 승인하고 mempool을 비우는 역할
+//coinbase tx를 생성하고 mempool에 coinbase tx를 추가함. 그 후 mempool을 초기화하고 []*Tx를 리턴
 func (m *mempool) TxToConfirm() []*Tx {
 	coinbase := makeCoinbaseTx(wallet.Wallet().Address) //coinbase에서 채굴자에게 주는 보상 tx
 	// txs := m.Txs                // 처음에 coinbase 에서 보낸 tx는 들어가있지 않으므로
@@ -246,12 +256,13 @@ func (m *mempool) TxToConfirm() []*Tx {
 	return txs
 }
 
+//모든 tx 의 모든 TxIn과 uTxOut를 비교하여 uTxOut이 사용되었나 사용되지않았나 판단함. 사용되었을경우 mempool에 존재함(true).
 func isOnMempool(uTxOut *UTxOut) bool {
 	exists := false
 Outer:
-	for _, tx := range Mempool().Txs {
-		for _, input := range tx.TxIns {
-			if input.TxID == uTxOut.TxID && input.Index == uTxOut.Index {
+	for _, tx := range Mempool().Txs { //모든 tx 중
+		for _, input := range tx.TxIns { //모든 TxIn 중
+			if input.TxID == uTxOut.TxID && input.Index == uTxOut.Index { //uTxOut이 사용되지 않았다면 input에 있지 않으므로 exists는 false
 				exists = true // true를  찾아내도 for루프가 끝나진 않음 -> 속도가느려짐
 				// break         //하나의 for 루프 나옴
 				break Outer // label 붙여서 바깥 루프를 나옴

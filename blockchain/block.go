@@ -24,6 +24,7 @@ type Block struct {
 
 var ErrNotFound = errors.New("Block not found")
 
+//block 초기화 후 block의 transactions에 mempool에서 가져온 tx를 대입. 그 후 block에 hash를 저장하고 db에 block 저장 후 block 리턴
 func createBlock(prevHash string, height int, diff int) *Block { //블록 생성하는 함수
 	block := Block{
 		//Data:       data,
@@ -43,6 +44,7 @@ func createBlock(prevHash string, height int, diff int) *Block { //블록 생성
 	return &block
 }
 
+//block의 hash가 target으로 시작(0의 갯수)하면 block에 해당 hash를 대입. 다르면 nonce + 1을 한 후 다시 hash를 구함
 func (b *Block) mine() { // nonce값 변경해가면서 난이도에 맞는 block 채굴
 	target := strings.Repeat("0", b.Difficulty)
 	for {
@@ -60,14 +62,17 @@ func (b *Block) mine() { // nonce값 변경해가면서 난이도에 맞는 bloc
 
 }
 
+//block을 []byte로 변환시킨 것을 db에 저장
 func persistBlock(b *Block) { //override. db에 block을 저장하는 함수
 	db.SaveBlock(b.Hash, utils.ToBytes(b))
 }
 
+//block을 []byte로 변환시켰던 것을 다시 block 형태로 변환.
 func (b *Block) fromBytes(data []byte) { //data를 decoding해서 block으로 저장하는 함수
 	utils.FromBytes(b, data)
 }
 
+//[]byte형식의 blockBytes를 가져온 후, 새로 생성한 Block 형식의 block에 blockBytes를 []byte->Block으로 변환하고 block 리턴.
 func FindBlock(hash string) (*Block, error) { // 특정 hash값을 가지는 block을 찾는 함수
 	blockBytes := db.Block(hash)
 	if blockBytes == nil {
